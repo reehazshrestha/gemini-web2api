@@ -10,13 +10,14 @@ from gemini_web2api.models import MODELS, resolve_model
 from gemini_web2api.gemini import generate, generate_stream
 from gemini_web2api.tools import messages_to_prompt
 
+
 app = FastAPI()
 
 
 def authorized(request: Request) -> bool:
     keys = CONFIG.get("api_keys", [])
 
-    # If no keys are configured, allow access.
+    # If no API keys are configured, allow access.
     if not keys:
         return True
 
@@ -46,7 +47,6 @@ async def root():
 @app.get("/api/v1/models")
 @app.get("/v1/models")
 async def models(request: Request):
-
     if not authorized(request):
         return JSONResponse(
             {"error": {"message": "invalid api key"}},
@@ -71,21 +71,35 @@ async def models(request: Request):
 @app.post("/api/v1/chat/completions")
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
-
     if not authorized(request):
         return JSONResponse(
             {"error": {"message": "invalid api key"}},
             status_code=401,
         )
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            {"error": {"message": "invalid JSON body"}},
+            status_code=400,
+        )
 
     model_name = body.get(
         "model",
         CONFIG.get("default_model", "gemini-3.6-flash"),
     )
 
-    model_name, model_id, think_mode, error = resolve_model(model_name)
+    # IMPORTANT:
+    # resolve_model() returns:
+    # model_name, model_id, think_mode, error, extra_fields
+    (
+        model_name,
+        model_id,
+        think_mode,
+        error,
+        extra_fields,
+    ) = resolve_model(model_name)
 
     if error:
         return JSONResponse(
@@ -95,10 +109,26 @@ async def chat_completions(request: Request):
 
     messages = body.get("messages", [])
 
-    prompt, images = messages_to_prompt(
-        messages,
-        body.get("tools"),
-    )
+    if not messages:
+        return JSONResponse(
+            {"error": {"message": "messages is required"}},
+            status_code=400,
+        )
+
+    try:
+        prompt, images = messages_to_prompt(
+            messages,
+            body.get("tools"),
+        )
+    except Exception as e:
+        return JSONResponse(
+            {
+                "error": {
+                    "message": f"Failed to process messages: {str(e)}"
+                }
+            },
+            status_code=400,
+        )
 
     if not prompt.strip():
         return JSONResponse(
@@ -108,6 +138,9 @@ async def chat_completions(request: Request):
 
     stream = body.get("stream", False)
 
+    # ---------------------------------------------------------
+    # STREAMING
+    # ---------------------------------------------------------
     if stream:
 
         def generate_sse():
@@ -121,7 +154,9 @@ async def chat_completions(request: Request):
                 "choices": [
                     {
                         "index": 0,
-                        "delta": {"role": "assistant"},
+                        "delta": {
+                            "role": "assistant"
+                        },
                         "finish_reason": None,
                     }
                 ],
@@ -129,26 +164,51 @@ async def chat_completions(request: Request):
 
             yield f"data: {json.dumps(first)}\n\n"
 
-            for delta in generate_stream(
-                prompt,
-                model_id,
-                think_mode,
-            ):
-                chunk = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": model_name,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": delta},
-                            "finish_reason": None,
-                        }
-                    ],
+            try:
+                for delta in generate_stream(
+                    prompt,
+                    model_id,
+                    think_mode,
+                    file_refs=images,
+                    extra_fields=extra_fields,
+                ):
+                    chunk = {
+                        "id": completion_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model_name,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "content": delta
+                                },
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+
+                    yield (
+                        f"data: "
+                        f"{json.dumps(chunk, ensure_ascii=False)}"
+                        f"\n\n"
+                    )
+
+            except Exception as e:
+                error_chunk = {
+                    "error": {
+                        "message": str(e)
+                    }
                 }
 
-                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                yield (
+                    f"data: "
+                    f"{json.dumps(error_chunk, ensure_ascii=False)}"
+                    f"\n\n"
+                )
+
+                yield "data: [DONE]\n\n"
+                return
 
             final = {
                 "id": completion_id,
@@ -173,14 +233,20 @@ async def chat_completions(request: Request):
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
             },
         )
 
+    # ---------------------------------------------------------
+    # NON-STREAMING
+    # ---------------------------------------------------------
     try:
         text = generate(
             prompt,
             model_id,
             think_mode,
+            file_refs=images,
+            extra_fields=extra_fields,
         )
 
     except Exception as e:
