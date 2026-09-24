@@ -163,6 +163,10 @@ def clean_text(text: str, strip: bool = True) -> str:
         '', text, flags=re.DOTALL
     )
     text = re.sub(r'http://googleusercontent\.com/card_content/\d+\n?', '', text)
+    # Canvas/Immersive mode artifacts (e.g. immersive_entry_chip links)
+    text = re.sub(r'https?://googleusercontent\.com/immersive[\w./-]*', '', text)
+    # Fallback: strip any leftover line that is only a googleusercontent artifact link
+    text = re.sub(r'^\s*https?://googleusercontent\.com/\S+\s*$', '', text, flags=re.MULTILINE)
     return text.strip() if strip else text
 
 

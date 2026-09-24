@@ -9,6 +9,17 @@ from urllib.parse import unquote_to_bytes
 
 MAX_IMAGE_B64_SIZE = 50000  # ~37KB raw image
 
+# Preamble prepended to every prompt so Gemini Web behaves like a text API
+# backend: no Canvas/Immersive documents, no "preview pane" meta-replies.
+API_PREAMBLE = (
+    "[System instruction]: You are running as a text-only API backend. "
+    "Reply ONLY with plain text/Markdown in the chat. Never use Canvas, "
+    "Immersive documents, code editor previews, cards, or any UI feature. "
+    "For any code request, output the full code inline in fenced code blocks. "
+    "Never mention editors, preview panes, or apps you cannot actually run. "
+    "Do not announce what you are about to do - just answer directly."
+)
+
 
 def _compress_b64_if_needed(b64: str) -> str:
     """Compress image if base64 is too large for text embedding."""
@@ -108,6 +119,8 @@ def messages_to_prompt(messages: list, tools: list = None, tool_choice=None) -> 
     """
     parts = []
     images = []
+
+    parts.append(API_PREAMBLE)
 
     if tools and tool_choice != "none":
         tool_defs = []
@@ -240,6 +253,8 @@ def google_contents_to_prompt(req: dict) -> tuple:
     """
     parts = []
     images = []
+
+    parts.append(API_PREAMBLE)
 
     tool_config = req.get("toolConfig", {})
     fc_mode = tool_config.get("functionCallingConfig", {}).get("mode", "AUTO")

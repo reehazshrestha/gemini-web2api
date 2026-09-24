@@ -80,7 +80,8 @@ class MessageParsingTests(unittest.TestCase):
             ],
         }])
 
-        self.assertEqual(prompt, "Describe [Image attached]")
+        self.assertTrue(prompt.endswith("Describe [Image attached]"))
+        self.assertIn("[System instruction]:", prompt)
         self.assertEqual(images, [(b"fake png", "image/png")])
 
     def test_messages_to_prompt_extracts_responses_input_image_url(self):
@@ -92,7 +93,8 @@ class MessageParsingTests(unittest.TestCase):
             ],
         }])
 
-        self.assertEqual(prompt, "Describe [Image attached]")
+        self.assertTrue(prompt.endswith("Describe [Image attached]"))
+        self.assertIn("[System instruction]:", prompt)
         self.assertEqual(images, [("https://example.com/image.png", "image/png")])
 
     def test_messages_to_prompt_ignores_malformed_image_data_url(self):
@@ -104,7 +106,8 @@ class MessageParsingTests(unittest.TestCase):
             ],
         }])
 
-        self.assertEqual(prompt, "Describe")
+        self.assertTrue(prompt.endswith("Describe"))
+        self.assertIn("[System instruction]:", prompt)
         self.assertEqual(images, [])
 
     def test_google_contents_to_prompt_extracts_inline_image_data(self):
@@ -120,7 +123,8 @@ class MessageParsingTests(unittest.TestCase):
             }],
         })
 
-        self.assertEqual(prompt, "Describe\n[Image attached]")
+        self.assertTrue(prompt.endswith("Describe\n[Image attached]"))
+        self.assertIn("[System instruction]:", prompt)
         self.assertEqual(images, [(b"fake png", "image/png")])
 
     def test_google_contents_to_prompt_ignores_malformed_inline_image_data(self):
@@ -134,7 +138,8 @@ class MessageParsingTests(unittest.TestCase):
             }],
         })
 
-        self.assertEqual(prompt, "Describe")
+        self.assertTrue(prompt.endswith("Describe"))
+        self.assertIn("[System instruction]:", prompt)
         self.assertEqual(images, [])
 
 
